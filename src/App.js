@@ -1,10 +1,124 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Plus, LogOut, Instagram, Facebook, Linkedin, Edit2, Trash2, X } from 'lucide-react';
+import { Calendar, Clock, Plus, LogOut, Instagram, Facebook, Linkedin, Edit2, Trash2, X, Youtube, Video, Cloud } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'placeholder-key';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Platform configurations
+const PLATFORMS = [
+  { value: 'instagram', icon: Instagram, label: 'Instagram', color: 'text-pink-500' },
+  { value: 'facebook', icon: Facebook, label: 'Facebook', color: 'text-blue-500' },
+  { value: 'linkedin', icon: Linkedin, label: 'LinkedIn', color: 'text-blue-700' },
+  { value: 'youtube', icon: Youtube, label: 'YouTube', color: 'text-red-500' },
+  { value: 'tiktok', icon: Video, label: 'TikTok', color: 'text-black' },
+  { value: 'twitter', icon: Cloud, label: 'X (Twitter)', color: 'text-gray-900' },
+  { value: 'bluesky', icon: Cloud, label: 'Bluesky', color: 'text-blue-400' },
+  { value: 'threads', icon: Cloud, label: 'Threads', color: 'text-gray-700' },
+];
+
+const PasswordResetPage = ({ onBack }) => {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const handleReset = async () => {
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    const { error } = await supabase.auth.updateUser({ password });
+
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+    } else {
+      setSuccess(true);
+      setTimeout(() => {
+        onBack();
+      }, 2000);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
+          <div className="text-green-600 text-5xl mb-4">✓</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Password Updated!</h2>
+          <p className="text-gray-600">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Reset Password</h2>
+        <p className="text-gray-600 mb-6">Enter your new password</p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              placeholder="••••••••"
+              disabled={loading}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              placeholder="••••••••"
+              disabled={loading}
+              onKeyPress={(e) => e.key === 'Enter' && handleReset()}
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">{error}</div>
+          )}
+
+          <button
+            onClick={handleReset}
+            disabled={loading}
+            className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 transition disabled:opacity-50"
+          >
+            {loading ? 'Updating...' : 'Update Password'}
+          </button>
+
+          <button
+            onClick={onBack}
+            disabled={loading}
+            className="w-full text-gray-600 hover:text-gray-700 text-sm"
+          >
+            Back to login
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const AuthForm = ({ onAuth }) => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -33,7 +147,7 @@ const AuthForm = ({ onAuth }) => {
     try {
       if (isForgotPassword) {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + '/reset-password',
+          redirectTo: window.location.origin + '#reset-password',
         });
         if (error) throw error;
         setSuccess('Check your email for password reset link!');
@@ -141,49 +255,122 @@ const AuthForm = ({ onAuth }) => {
   );
 };
 
-const DayPostsModal = ({ date, posts, onClose, onEdit, onDelete }) => {
+const TrashBin = ({ deletedPosts, onRestore, onPermanentDelete, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-3xl max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-gray-900">Posts for {date}</h3>
+          <h3 className="text-xl font-bold text-gray-900">Trash Bin</h3>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
             <X size={20} />
           </button>
         </div>
 
-        {posts.length === 0 ? (
-          <p className="text-gray-500 text-center py-8">No posts scheduled for this day</p>
+        {deletedPosts.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">Trash is empty</p>
         ) : (
           <div className="space-y-3">
-            {posts.map((post) => (
-              <div key={post.id} className="border border-gray-200 rounded-lg p-4 hover:border-purple-300 transition">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {post.platform === 'instagram' && <Instagram size={18} className="text-pink-500" />}
-                    {post.platform === 'facebook' && <Facebook size={18} className="text-blue-500" />}
-                    {post.platform === 'linkedin' && <Linkedin size={18} className="text-blue-700" />}
-                    <span className="font-medium capitalize">{post.platform}</span>
-                    <span className="text-sm text-gray-500">at {post.time}</span>
+            {deletedPosts.map((post) => {
+              const platform = PLATFORMS.find(p => p.value === post.platform);
+              const Icon = platform?.icon || Cloud;
+              
+              return (
+                <div key={post.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Icon size={18} className={platform?.color} />
+                      <span className="font-medium capitalize">{post.platform}</span>
+                      <span className="text-sm text-gray-500">{post.date} at {post.time}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onRestore(post.id)}
+                        className="px-3 py-1 bg-green-50 text-green-600 rounded hover:bg-green-100 text-sm"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => onPermanentDelete(post.id)}
+                        className="px-3 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 text-sm"
+                      >
+                        Delete Forever
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onEdit(post)}
-                      className="p-1 hover:bg-gray-100 rounded"
-                    >
-                      <Edit2 size={16} className="text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => onDelete(post.id)}
-                      className="p-1 hover:bg-red-50 rounded"
-                    >
-                      <Trash2 size={16} className="text-red-600" />
-                    </button>
-                  </div>
+                  <p className="text-gray-700 whitespace-pre-wrap text-sm">{post.content}</p>
                 </div>
-                <p className="text-gray-700 whitespace-pre-wrap">{post.content}</p>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const DayPostsModal = ({ date, posts, onClose, onEdit, onDelete, onNewPost }) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-gray-900">Posts for {date}</h3>
+          <div className="flex gap-2">
+            <button
+              onClick={onNewPost}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 text-sm"
+            >
+              <Plus size={16} />
+              New Post
+            </button>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {posts.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-gray-500 mb-4">No posts scheduled for this day</p>
+            <button
+              onClick={onNewPost}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            >
+              Schedule a Post
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {posts.map((post) => {
+              const platform = PLATFORMS.find(p => p.value === post.platform);
+              const Icon = platform?.icon || Cloud;
+              
+              return (
+                <div key={post.id} className="border border-gray-200 rounded-lg p-4 hover:border-purple-300 transition">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Icon size={18} className={platform?.color} />
+                      <span className="font-medium capitalize">{post.platform}</span>
+                      <span className="text-sm text-gray-500">at {post.time}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onEdit(post)}
+                        className="p-1 hover:bg-gray-100 rounded"
+                      >
+                        <Edit2 size={16} className="text-gray-600" />
+                      </button>
+                      <button
+                        onClick={() => onDelete(post.id)}
+                        className="p-1 hover:bg-red-50 rounded"
+                      >
+                        <Trash2 size={16} className="text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-gray-700 whitespace-pre-wrap">{post.content}</p>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -254,16 +441,26 @@ const CalendarView = ({ posts, onSelectDate, onViewDayPosts }) => {
             <div
               key={day}
               onClick={() => dayPosts.length > 0 ? onViewDayPosts(dateStr, dayPosts) : onSelectDate(dateStr)}
-              className={`aspect-square border rounded-lg p-1 md:p-2 cursor-pointer hover:bg-purple-50 transition ${
+              className={`aspect-square border rounded-lg p-1 cursor-pointer hover:bg-purple-50 transition ${
                 isToday ? 'border-purple-500 bg-purple-50' : 'border-gray-200'
               }`}
             >
-              <div className={`text-xs md:text-sm font-medium ${isToday ? 'text-purple-600' : 'text-gray-700'}`}>{day}</div>
+              <div className={`text-xs md:text-sm font-medium mb-1 ${isToday ? 'text-purple-600' : 'text-gray-700'}`}>{day}</div>
               {dayPosts.length > 0 && (
-                <div className="mt-1">
-                  <div className="text-xs bg-purple-100 text-purple-700 px-1 py-0.5 rounded text-center">
-                    {dayPosts.length} post{dayPosts.length > 1 ? 's' : ''}
-                  </div>
+                <div className="flex flex-wrap gap-0.5">
+                  {dayPosts.slice(0, 3).map((post, idx) => {
+                    const platform = PLATFORMS.find(p => p.value === post.platform);
+                    const Icon = platform?.icon || Cloud;
+                    return (
+                      <div key={idx} className="flex items-center gap-0.5 bg-purple-100 rounded px-1 py-0.5">
+                        <Icon size={10} className={platform?.color} />
+                        <span className="text-[8px] text-gray-600">{post.time}</span>
+                      </div>
+                    );
+                  })}
+                  {dayPosts.length > 3 && (
+                    <div className="text-[8px] text-gray-500 px-1">+{dayPosts.length - 3}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -320,22 +517,18 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Platform{!editingPost && 's'} {!editingPost && <span className="text-gray-500">(select multiple)</span>}
             </label>
-            <div className="flex gap-2">
-              {[
-                { value: 'instagram', icon: Instagram, label: 'Instagram' },
-                { value: 'facebook', icon: Facebook, label: 'Facebook' },
-                { value: 'linkedin', icon: Linkedin, label: 'LinkedIn' }
-              ].map(({ value, icon: Icon, label }) => (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {PLATFORMS.map(({ value, icon: Icon, label }) => (
                 <button
                   key={value}
                   onClick={() => togglePlatform(value)}
                   disabled={saving || editingPost}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg border-2 transition ${
+                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-lg border-2 transition ${
                     platforms.includes(value) ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300'
                   } ${editingPost ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <Icon size={18} />
-                  <span className="text-sm font-medium hidden md:inline">{label}</span>
+                  <Icon size={16} />
+                  <span className="text-xs font-medium">{label.split(' ')[0]}</span>
                 </button>
               ))}
             </div>
@@ -378,7 +571,7 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
               disabled={saving || !content.trim() || platforms.length === 0}
               className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
             >
-              {saving ? 'Saving...' : (editingPost ? 'Update Post' : 'Schedule')}
+              {saving ? 'Saving...' : (editingPost ? 'Update' : 'Schedule')}
             </button>
           </div>
         </div>
@@ -391,12 +584,20 @@ const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [posts, setPosts] = useState([]);
+  const [deletedPosts, setDeletedPosts] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [viewingDayPosts, setViewingDayPosts] = useState(null);
   const [editingPost, setEditingPost] = useState(null);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
 
   useEffect(() => {
+    // Check URL hash for password reset
+    if (window.location.hash === '#reset-password') {
+      setShowPasswordReset(true);
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setLoading(false);
@@ -404,6 +605,9 @@ const App = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (session?.user) {
+        setShowPasswordReset(false);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -412,6 +616,7 @@ const App = () => {
   useEffect(() => {
     if (user) {
       loadPosts();
+      loadDeletedPosts();
     }
   }, [user]);
 
@@ -420,6 +625,7 @@ const App = () => {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
+      .eq('status', 'scheduled')
       .order('date', { ascending: true });
 
     if (error) {
@@ -428,6 +634,20 @@ const App = () => {
       setPosts(data || []);
     }
     setLoadingPosts(false);
+  };
+
+  const loadDeletedPosts = async () => {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('status', 'deleted')
+      .order('date', { ascending: true });
+
+    if (error) {
+      console.error('Error loading deleted posts:', error);
+    } else {
+      setDeletedPosts(data || []);
+    }
   };
 
   const handleSavePost = async (post) => {
@@ -463,11 +683,11 @@ const App = () => {
   };
 
   const handleDeletePost = async (postId) => {
-    if (!window.confirm('Delete this post?')) return;
+    if (!window.confirm('Move this post to trash?')) return;
 
     const { error } = await supabase
       .from('posts')
-      .delete()
+      .update({ status: 'deleted' })
       .eq('id', postId);
 
     if (error) {
@@ -475,7 +695,40 @@ const App = () => {
       alert('Failed to delete post. Please try again.');
     } else {
       await loadPosts();
+      await loadDeletedPosts
+      ();
       setViewingDayPosts(null);
+    }
+  };
+
+  const handleRestorePost = async (postId) => {
+    const { error } = await supabase
+      .from('posts')
+      .update({ status: 'scheduled' })
+      .eq('id', postId);
+
+    if (error) {
+      console.error('Error restoring post:', error);
+      alert('Failed to restore post. Please try again.');
+    } else {
+      await loadPosts();
+      await loadDeletedPosts();
+    }
+  };
+
+  const handlePermanentDelete = async (postId) => {
+    if (!window.confirm('Permanently delete this post? This cannot be undone.')) return;
+
+    const { error } = await supabase
+      .from('posts')
+      .delete()
+      .eq('id', postId);
+
+    if (error) {
+      console.error('Error permanently deleting post:', error);
+      alert('Failed to delete post. Please try again.');
+    } else {
+      await loadDeletedPosts();
     }
   };
 
@@ -483,6 +736,7 @@ const App = () => {
     await supabase.auth.signOut();
     setUser(null);
     setPosts([]);
+    setDeletedPosts([]);
   };
 
   if (loading) {
@@ -491,6 +745,13 @@ const App = () => {
         <div className="text-xl text-gray-600">Loading...</div>
       </div>
     );
+  }
+
+  if (showPasswordReset && !user) {
+    return <PasswordResetPage onBack={() => {
+      setShowPasswordReset(false);
+      window.location.hash = '';
+    }} />;
   }
 
   if (!user) {
@@ -507,6 +768,18 @@ const App = () => {
               <h1 className="text-xl md:text-2xl font-bold text-gray-900">Vellu</h1>
             </div>
             <div className="flex items-center gap-2 md:gap-4">
+              <button
+                onClick={() => setShowTrash(true)}
+                className="p-2 hover:bg-gray-100 rounded-lg relative"
+                title="Trash"
+              >
+                <Trash2 size={20} className="text-gray-600" />
+                {deletedPosts.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    {deletedPosts.length}
+                  </span>
+                )}
+              </button>
               <span className="text-xs md:text-sm text-gray-600 truncate max-w-[120px] md:max-w-none">{user.email}</span>
               <button onClick={handleSignOut} className="flex items-center gap-1 md:gap-2 px-3 md:px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-sm">
                 <LogOut size={16} /><span className="hidden md:inline">Sign Out</span>
@@ -546,7 +819,7 @@ const App = () => {
               <div className="p-2 bg-blue-100 rounded-lg"><Instagram className="text-blue-600" size={16} /></div>
               <h3 className="text-xs md:text-sm font-medium text-gray-600">Platforms</h3>
             </div>
-            <p className="text-2xl md:text-3xl font-bold text-gray-900">3</p>
+            <p className="text-2xl md:text-3xl font-bold text-gray-900">{PLATFORMS.length}</p>
           </div>
 
           <button
@@ -599,6 +872,19 @@ const App = () => {
               setViewingDayPosts(null);
             }}
             onDelete={handleDeletePost}
+            onNewPost={() => {
+              setSelectedDate(viewingDayPosts.date);
+              setViewingDayPosts(null);
+            }}
+          />
+        )}
+
+        {showTrash && (
+          <TrashBin
+            deletedPosts={deletedPosts}
+            onRestore={handleRestorePost}
+            onPermanentDelete={handlePermanentDelete}
+            onClose={() => setShowTrash(false)}
           />
         )}
       </div>
