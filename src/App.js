@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Plus, LogOut, Instagram, Facebook, Linkedin, Edit2, Trash2, X, Youtube, Video, Cloud } from 'lucide-react';
+import { Calendar, Clock, Plus, LogOut, Instagram, Facebook, Linkedin, Edit2, Trash2, X, Youtube, Video, Cloud, Upload, Image as ImageIcon } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'placeholder-key';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Platform configurations
 const PLATFORMS = [
   { value: 'instagram', icon: Instagram, label: 'Instagram', color: 'text-pink-500' },
   { value: 'facebook', icon: Facebook, label: 'Facebook', color: 'text-blue-500' },
@@ -297,6 +296,15 @@ const TrashBin = ({ deletedPosts, onRestore, onPermanentDelete, onClose }) => {
                       </button>
                     </div>
                   </div>
+                  {post.media_url && (
+                    <div className="mb-2">
+                      {post.media_type === 'video' ? (
+                        <video src={post.media_url} className="max-w-xs rounded" controls />
+                      ) : (
+                        <img src={post.media_url} alt="Post media" className="max-w-xs rounded" />
+                      )}
+                    </div>
+                  )}
                   <p className="text-gray-700 whitespace-pre-wrap text-sm">{post.content}</p>
                 </div>
               );
@@ -367,6 +375,15 @@ const DayPostsModal = ({ date, posts, onClose, onEdit, onDelete, onNewPost }) =>
                       </button>
                     </div>
                   </div>
+                  {post.media_url && (
+                    <div className="mb-2">
+                      {post.media_type === 'video' ? (
+                        <video src={post.media_url} className="max-w-full rounded" controls />
+                      ) : (
+                        <img src={post.media_url} alt="Post media" className="max-w-full rounded" />
+                      )}
+                    </div>
+                  )}
                   <p className="text-gray-700 whitespace-pre-wrap">{post.content}</p>
                 </div>
               );
@@ -455,6 +472,7 @@ const CalendarView = ({ posts, onSelectDate, onViewDayPosts }) => {
                       <div key={idx} className="flex items-center gap-0.5 bg-purple-100 rounded px-1 py-0.5">
                         <Icon size={10} className={platform?.color} />
                         <span className="text-[8px] text-gray-600">{post.time}</span>
+                        {post.media_url && <ImageIcon size={8} className="text-purple-600" />}
                       </div>
                     );
                   })}
@@ -471,11 +489,15 @@ const CalendarView = ({ posts, onSelectDate, onViewDayPosts }) => {
   );
 };
 
-const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
+const PostForm = ({ selectedDate, editingPost, onSave, onCancel, userId }) => {
   const [content, setContent] = useState(editingPost?.content || '');
   const [platforms, setPlatforms] = useState(editingPost ? [editingPost.platform] : ['instagram']);
   const [time, setTime] = useState(editingPost?.time || '09:00');
   const [saving, setSaving] = useState(false);
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(editingPost?.media_url || null);
+  const [mediaType, setMediaType] = useState(editingPost?.media_type || null);
+  const [uploading, setUploading] = useState(false);
 
   const togglePlatform = (platform) => {
     if (platforms.includes(platform)) {
@@ -487,28 +509,121 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
     }
   };
 
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Check file size (max 50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      alert('File size must be less than 50MB');
+      return;
+    }
+
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+
+    if (!isVideo && !isImage) {
+      alert('Please select an image or video file');
+      return;
+    }
+
+    setMediaFile(file);
+    setMediaType(isVideo ? 'video' : 'image');
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setMediaPreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeMedia = () => {
+    setMediaFile(null);
+    setMediaPreview(null);
+    setMediaType(null);
+  };
+
+  const uploadMedia = async () => {
+    if (!mediaFile) return null;
+
+    setUploading(true);
+    
+    try {
+      const fileExt = mediaFile.name.split('.').pop();
+      const fileName = `${userId}/${Date.now()}.${fileExt}`;
+      
+      const { data, error } = await supabase.storage
+        .from('post-media')
+        .upload(fileName, mediaFile);
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('post-media')
+        .getPublicUrl(fileName);
+
+      setUploading(false);
+      return publicUrl;
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Failed to upload media. Please try again.');
+      setUploading(false);
+      return null;
+    }
+  };
+
   const handleSubmit = async () => {
     if (content.trim() && platforms.length > 0) {
       setSaving(true);
       
+      let mediaUrl = mediaPreview;
+      
+      // Upload new media if file was selected
+      if (mediaFile) {
+        mediaUrl = await uploadMedia();
+        if (!mediaUrl) {
+          setSaving(false);
+          return;
+        }
+      }
+      
       if (editingPost) {
-        await onSave({ ...editingPost, content, time, platform: platforms[0] });
+        await onSave({ 
+          ...editingPost, 
+          content, 
+          time, 
+          platform: platforms[0],
+          media_url: mediaUrl,
+          media_type: mediaType
+        });
       } else {
         for (const platform of platforms) {
-          await onSave({ date: selectedDate, time, platform, content, status: 'scheduled' });
+          await onSave({ 
+            date: selectedDate, 
+            time, 
+            platform, 
+            content, 
+            status: 'scheduled',
+            media_url: mediaUrl,
+            media_type: mediaType
+          });
         }
       }
       
       setSaving(false);
       setContent('');
       setPlatforms(['instagram']);
+      setMediaFile(null);
+      setMediaPreview(null);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <h3 className="text-xl font-bold text-gray-900 mb-4">
+        <h3
+        className="text-xl font-bold text-gray-900 mb-4">
           {editingPost ? 'Edit Post' : `Schedule Post for ${selectedDate}`}
         </h3>
 
@@ -522,7 +637,7 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
                 <button
                   key={value}
                   onClick={() => togglePlatform(value)}
-                  disabled={saving || editingPost}
+                  disabled={saving || uploading || editingPost}
                   className={`flex items-center justify-center gap-1 py-2 px-2 rounded-lg border-2 transition ${
                     platforms.includes(value) ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300'
                   } ${editingPost ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -540,9 +655,45 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
               type="time"
               value={time}
               onChange={(e) => setTime(e.target.value)}
-              disabled={saving}
+              disabled={saving || uploading}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Image or Video <span className="text-gray-500">(optional)</span>
+            </label>
+            
+            {!mediaPreview ? (
+              <label className="block w-full border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-purple-400 transition">
+                <Upload className="mx-auto mb-2 text-gray-400" size={32} />
+                <p className="text-sm text-gray-600">Click to upload image or video</p>
+                <p className="text-xs text-gray-500 mt-1">Max 50MB</p>
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={handleFileSelect}
+                  disabled={saving || uploading}
+                  className="hidden"
+                />
+              </label>
+            ) : (
+              <div className="relative">
+                {mediaType === 'video' ? (
+                  <video src={mediaPreview} controls className="w-full rounded-lg" />
+                ) : (
+                  <img src={mediaPreview} alt="Preview" className="w-full rounded-lg" />
+                )}
+                <button
+                  onClick={removeMedia}
+                  disabled={saving || uploading}
+                  className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
           </div>
 
           <div>
@@ -550,7 +701,7 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              disabled={saving}
+              disabled={saving || uploading}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               rows="6"
               placeholder="What do you want to post?"
@@ -561,17 +712,17 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel }) => {
           <div className="flex gap-3">
             <button 
               onClick={onCancel} 
-              disabled={saving}
+              disabled={saving || uploading}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
             >
               Cancel
             </button>
             <button 
               onClick={handleSubmit} 
-              disabled={saving || !content.trim() || platforms.length === 0}
+              disabled={saving || uploading || !content.trim() || platforms.length === 0}
               className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
             >
-              {saving ? 'Saving...' : (editingPost ? 'Update' : 'Schedule')}
+              {uploading ? 'Uploading...' : (saving ? 'Saving...' : (editingPost ? 'Update' : 'Schedule'))}
             </button>
           </div>
         </div>
@@ -593,7 +744,6 @@ const App = () => {
   const [showPasswordReset, setShowPasswordReset] = useState(false);
 
   useEffect(() => {
-    // Check URL hash for password reset
     if (window.location.hash === '#reset-password') {
       setShowPasswordReset(true);
     }
@@ -650,11 +800,30 @@ const App = () => {
     }
   };
 
+  const deleteMediaFile = async (mediaUrl) => {
+    if (!mediaUrl) return;
+    
+    try {
+      const path = mediaUrl.split('/post-media/')[1];
+      if (path) {
+        await supabase.storage.from('post-media').remove([path]);
+      }
+    } catch (error) {
+      console.error('Error deleting media:', error);
+    }
+  };
+
   const handleSavePost = async (post) => {
     if (editingPost) {
       const { error } = await supabase
         .from('posts')
-        .update({ content: post.content, time: post.time, platform: post.platform })
+        .update({ 
+          content: post.content, 
+          time: post.time, 
+          platform: post.platform,
+          media_url: post.media_url,
+          media_type: post.media_type
+        })
         .eq('id', editingPost.id);
 
       if (error) {
@@ -695,8 +864,7 @@ const App = () => {
       alert('Failed to delete post. Please try again.');
     } else {
       await loadPosts();
-      await loadDeletedPosts
-      ();
+      await loadDeletedPosts();
       setViewingDayPosts(null);
     }
   };
@@ -718,6 +886,12 @@ const App = () => {
 
   const handlePermanentDelete = async (postId) => {
     if (!window.confirm('Permanently delete this post? This cannot be undone.')) return;
+
+    const post = deletedPosts.find(p => p.id === postId);
+    
+    if (post?.media_url) {
+      await deleteMediaFile(post.media_url);
+    }
 
     const { error } = await supabase
       .from('posts')
@@ -846,7 +1020,8 @@ const App = () => {
           <PostForm 
             selectedDate={selectedDate} 
             onSave={handleSavePost} 
-            onCancel={() => setSelectedDate(null)} 
+            onCancel={() => setSelectedDate(null)}
+            userId={user.id}
           />
         )}
 
@@ -858,7 +1033,8 @@ const App = () => {
             onCancel={() => {
               setEditingPost(null);
               setSelectedDate(null);
-            }} 
+            }}
+            userId={user.id}
           />
         )}
 
