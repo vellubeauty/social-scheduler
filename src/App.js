@@ -1,21 +1,83 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Plus, LogOut, Instagram, Facebook, Linkedin, Edit2, Trash2, X, Youtube, Video, Cloud, Upload, Image as ImageIcon } from 'lucide-react';
+import { Calendar, Clock, Plus, LogOut, Instagram, Facebook, Linkedin, Edit2, Trash2, X, Youtube, Video, Cloud, Upload, Image as ImageIcon, Sparkles, RefreshCw, Link as LinkIcon, CheckCircle, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'placeholder-key';
+const groqApiKey = process.env.REACT_APP_GROQ_API_KEY || '';
+const linkedinClientId = process.env.REACT_APP_LINKEDIN_CLIENT_ID || '';
+const linkedinRedirectUri = process.env.REACT_APP_LINKEDIN_REDIRECT_URI || 'http://localhost:3000/auth/linkedin/callback';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const PLATFORMS = [
-  { value: 'instagram', icon: Instagram, label: 'Instagram', color: 'text-pink-500' },
-  { value: 'facebook', icon: Facebook, label: 'Facebook', color: 'text-blue-500' },
-  { value: 'linkedin', icon: Linkedin, label: 'LinkedIn', color: 'text-blue-700' },
-  { value: 'youtube', icon: Youtube, label: 'YouTube', color: 'text-red-500' },
-  { value: 'tiktok', icon: Video, label: 'TikTok', color: 'text-black' },
-  { value: 'twitter', icon: Cloud, label: 'X (Twitter)', color: 'text-gray-900' },
-  { value: 'bluesky', icon: Cloud, label: 'Bluesky', color: 'text-blue-400' },
-  { value: 'threads', icon: Cloud, label: 'Threads', color: 'text-gray-700' },
+  { value: 'instagram', icon: Instagram, label: 'Instagram', color: 'text-pink-500', limit: 2200 },
+  { value: 'facebook', icon: Facebook, label: 'Facebook', color: 'text-blue-500', limit: 63206 },
+  { value: 'linkedin', icon: Linkedin, label: 'LinkedIn', color: 'text-blue-700', limit: 3000 },
+  { value: 'youtube', icon: Youtube, label: 'YouTube', color: 'text-red-500', limit: 5000 },
+  { value: 'tiktok', icon: Video, label: 'TikTok', color: 'text-black', limit: 2200 },
+  { value: 'twitter', icon: Cloud, label: 'X (Twitter)', color: 'text-gray-900', limit: 280 },
+  { value: 'bluesky', icon: Cloud, label: 'Bluesky', color: 'text-blue-400', limit: 300 },
+  { value: 'threads', icon: Cloud, label: 'Threads', color: 'text-gray-700', limit: 500 },
 ];
+
+const generateCaption = async (topic, platform, tone) => {
+  if (!groqApiKey) {
+    throw new Error('Groq API key not configured');
+  }
+
+  const platformInfo = PLATFORMS.find(p => p.value === platform);
+  const charLimit = platformInfo?.limit || 2200;
+
+  const toneDescriptions = {
+    professional: 'professional and business-appropriate',
+    casual: 'casual and friendly',
+    funny: 'humorous and entertaining',
+    inspirational: 'motivational and uplifting',
+    sales: 'persuasive and sales-focused'
+  };
+
+  const prompt = `Write a ${toneDescriptions[tone]} social media caption for ${platformInfo?.label || platform} about: ${topic}
+
+Requirements:
+- Must be under ${charLimit} characters
+- Include relevant emojis
+- Add 3-5 relevant hashtags at the end
+- Make it engaging and likely to get interactions
+- Match the tone: ${tone}
+
+Just write the caption directly, no explanations or extra text.`;
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${groqApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a social media expert who writes engaging captions. Always write concise, platform-appropriate content with emojis and hashtags.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.8,
+      max_tokens: 500
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || 'Failed to generate caption');
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content?.trim() || '';
+};
 
 const PasswordResetPage = ({ onBack }) => {
   const [password, setPassword] = useState('');
@@ -489,31 +551,297 @@ const CalendarView = ({ posts, onSelectDate, onViewDayPosts }) => {
   );
 };
 
-const PostForm = ({ selectedDate, editingPost, onSave, onCancel, userId }) => {
+const AICaptionGenerator = ({ platform, onInsert, onClose }) => {
+  const [topic, setTopic] = useState('');
+  const [tone, setTone] = useState('casual');
+  const [generating, setGenerating] = useState(false);
+  const [generated, setGenerated] = useState('');
+  const [error, setError] = useState('');
+
+  const tones = [
+    { value: 'professional', label: 'Professional', emoji: '💼' },
+    { value: 'casual', label: 'Casual', emoji: '😊' },
+    { value: 'funny', label: 'Funny', emoji: '😄' },
+    { value: 'inspirational', label: 'Inspirational', emoji: '✨' },
+    { value: 'sales', label: 'Sales', emoji: '💰' }
+  ];
+
+  const handleGenerate = async () => {
+    if (!topic.trim()) {
+      setError('Please enter a topic');
+      return;
+    }
+
+    setGenerating(true);
+    setError('');
+    setGenerated('');
+
+    try {
+      const caption = await generateCaption(topic, platform, tone);
+      setGenerated(caption);
+    } catch (err) {
+      setError(err.message || 'Failed to generate caption');
+    } finally {
+      setGenerating(false);
+    }
+  };
+  const LinkedInCallback = ({ onComplete }) => {
+  useEffect(() => {
+    const handleCallback = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const error = params.get('error');
+
+      if (error) {
+        alert(`LinkedIn authorization failed: ${error}`);
+        window.location.href = '/';
+        return;
+      }
+
+      if (code) {
+        try {
+          // Call Edge Function to exchange code for token
+          const response = await fetch(`${supabaseUrl}/functions/v1/linkedin-oauth`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseAnonKey}`,
+            },
+            body: JSON.stringify({
+              action: 'exchange_code',
+              code: code,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
+          // Get current user
+          const { data: { user } } = await supabase.auth.getUser();
+
+          if (!user) {
+            throw new Error('Not authenticated');
+          }
+
+          // Save to connected_accounts
+          const expiresAt = new Date();
+          expiresAt.setSeconds(expiresAt.getSeconds() + data.expires_in);
+
+          const { error: dbError } = await supabase
+            .from('connected_accounts')
+            .upsert({
+              user_id: user.id,
+              platform: 'linkedin',
+              platform_user_id: data.profile.id,
+              platform_username: data.profile.name,
+              access_token: data.access_token,
+              expires_at: expiresAt.toISOString(),
+              profile_image_url: data.profile.picture,
+            }, {
+              onConflict: 'user_id,platform,platform_user_id'
+            });
+
+          if (dbError) throw dbError;
+
+          alert('LinkedIn account connected successfully!');
+          window.location.href = '/';
+          
+        } catch (error) {
+          console.error('LinkedIn callback error:', error);
+          alert(`Failed to connect LinkedIn: ${error.message}`);
+          window.location.href = '/';
+        }
+      }
+    };
+
+    handleCallback();
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+        <h2 className="text-xl font-bold text-gray-900">Connecting LinkedIn...</h2>
+        <p className="text-gray-600 mt-2">Please wait while we complete the connection.</p>
+      </div>
+    </div>
+  );
+};
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <Sparkles className="text-purple-600" size={24} />
+            AI Caption Generator
+          </h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              What's your post about?
+            </label>
+            <input
+              type="text"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              placeholder="e.g., New product launch, Monday motivation, Behind the scenes..."
+              disabled={generating}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Tone
+            </label>
+            <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+              {tones.map(({ value, label, emoji }) => (
+                <button
+                  key={value}
+                  onClick={() => setTone(value)}
+                  disabled={generating}
+                  className={`flex flex-col items-center gap-1 py-3 px-2 rounded-lg border-2 transition ${
+                    tone === value ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <span className="text-2xl">{emoji}</span>
+                  <span className="text-xs font-medium">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">{error}</div>
+          )}
+
+          {generated && (
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg border-2 border-purple-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-purple-700">Generated Caption</span>
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                >
+                  <RefreshCw size={14} />
+                  Regenerate
+                </button>
+              </div>
+              <p className="text-gray-800 whitespace-pre-wrap">{generated}</p>
+              <div className="text-xs text-gray-500 mt-2">
+                {generated.length} characters
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            {!generated ? (
+              <button
+                onClick={handleGenerate}
+                disabled={generating || !topic.trim()}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {generating ? (
+                  <>
+                    <RefreshCw size={18} className="animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={18} />
+                    Generate Caption
+                  </>
+                )}
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={onClose}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    onInsert(generated);
+                    onClose();
+                  }}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                >
+                  Use This Caption
+                </button>
+                </>
+            )}
+          </div>
+
+          <div className="text-xs text-gray-500 text-center">
+            Powered by Groq AI • Free forever
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PostForm = ({ selectedDate, editingPost, onSave, onCancel, userId, connectedAccounts }) => {
   const [content, setContent] = useState(editingPost?.content || '');
   const [platforms, setPlatforms] = useState(editingPost ? [editingPost.platform] : ['instagram']);
-  const [time, setTime] = useState(editingPost?.time || '09:00');
+  const [platformTimes, setPlatformTimes] = useState(
+    editingPost 
+      ? { [editingPost.platform]: editingPost.time }
+      : { instagram: '09:00' }
+  );
   const [saving, setSaving] = useState(false);
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(editingPost?.media_url || null);
   const [mediaType, setMediaType] = useState(editingPost?.media_type || null);
   const [uploading, setUploading] = useState(false);
+  const [showAI, setShowAI] = useState(false);
 
   const togglePlatform = (platform) => {
     if (platforms.includes(platform)) {
       if (platforms.length > 1) {
         setPlatforms(platforms.filter(p => p !== platform));
+        const newTimes = { ...platformTimes };
+        delete newTimes[platform];
+        setPlatformTimes(newTimes);
       }
     } else {
       setPlatforms([...platforms, platform]);
+      setPlatformTimes({
+        ...platformTimes,
+        [platform]: platformTimes[platforms[0]] || '09:00'
+      });
     }
   };
+
+  const updatePlatformTime = (platform, time) => {
+    setPlatformTimes({
+      ...platformTimes,
+      [platform]: time
+    });
+  };
+
+  const isConnected = (platform) => {
+    return connectedAccounts.some(acc => acc.platform === platform);
+  };
+
+  // ... rest of the file select and upload functions stay the same ...
 
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Check file size (max 50MB)
     if (file.size > 50 * 1024 * 1024) {
       alert('File size must be less than 50MB');
       return;
@@ -530,7 +858,6 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel, userId }) => {
     setMediaFile(file);
     setMediaType(isVideo ? 'video' : 'image');
     
-    // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setMediaPreview(reader.result);
@@ -553,7 +880,7 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel, userId }) => {
       const fileExt = mediaFile.name.split('.').pop();
       const fileName = `${userId}/${Date.now()}.${fileExt}`;
       
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from('post-media')
         .upload(fileName, mediaFile);
 
@@ -579,7 +906,6 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel, userId }) => {
       
       let mediaUrl = mediaPreview;
       
-      // Upload new media if file was selected
       if (mediaFile) {
         mediaUrl = await uploadMedia();
         if (!mediaUrl) {
@@ -592,158 +918,238 @@ const PostForm = ({ selectedDate, editingPost, onSave, onCancel, userId }) => {
         await onSave({ 
           ...editingPost, 
           content, 
-          time, 
+          time: platformTimes[platforms[0]], 
           platform: platforms[0],
           media_url: mediaUrl,
           media_type: mediaType
         });
       } else {
         for (const platform of platforms) {
-          await onSave({ 
+          const postData = { 
             date: selectedDate, 
-            time, 
+            time: platformTimes[platform] || '09:00', 
             platform, 
             content, 
             status: 'scheduled',
             media_url: mediaUrl,
             media_type: mediaType
-          });
+          };
+          
+          await onSave(postData);
         }
       }
       
       setSaving(false);
       setContent('');
       setPlatforms(['instagram']);
+      setPlatformTimes({ instagram: '09:00' });
       setMediaFile(null);
       setMediaPreview(null);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <h3
-        className="text-xl font-bold text-gray-900 mb-4">
-          {editingPost ? 'Edit Post' : `Schedule Post for ${selectedDate}`}
-        </h3>
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">
+            {editingPost ? 'Edit Post' : `Schedule Post for ${selectedDate}`}
+          </h3>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Platform{!editingPost && 's'} {!editingPost && <span className="text-gray-500">(select multiple)</span>}
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {PLATFORMS.map(({ value, icon: Icon, label }) => (
-                <button
-                  key={value}
-                  onClick={() => togglePlatform(value)}
-                  disabled={saving || uploading || editingPost}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-lg border-2 transition ${
-                    platforms.includes(value) ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300'
-                  } ${editingPost ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  <Icon size={16} />
-                  <span className="text-xs font-medium">{label.split(' ')[0]}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              disabled={saving || uploading}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Image or Video <span className="text-gray-500">(optional)</span>
-            </label>
-            
-            {!mediaPreview ? (
-              <label className="block w-full border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-purple-400 transition">
-                <Upload className="mx-auto mb-2 text-gray-400" size={32} />
-                <p className="text-sm text-gray-600">Click to upload image or video</p>
-                <p className="text-xs text-gray-500 mt-1">Max 50MB</p>
-                <input
-                  type="file"
-                  accept="image/*,video/*"
-                  onChange={handleFileSelect}
-                  disabled={saving || uploading}
-                  className="hidden"
-                />
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Platform{!editingPost && 's'} {!editingPost && <span className="text-gray-500">(select multiple)</span>}
               </label>
-            ) : (
-              <div className="relative">
-                {mediaType === 'video' ? (
-                  <video src={mediaPreview} controls className="w-full rounded-lg" />
-                ) : (
-                  <img src={mediaPreview} alt="Preview" className="w-full rounded-lg" />
-                )}
-                <button
-                  onClick={removeMedia}
-                  disabled={saving || uploading}
-                  className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
-                >
-                  <X size={16} />
-                </button>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {PLATFORMS.map(({ value, icon: Icon, label }) => {
+                  const connected = isConnected(value);
+                  
+                  return (
+                    <button
+                      key={value}
+                      onClick={() => togglePlatform(value)}
+                      disabled={saving || uploading || editingPost}
+                      className={`relative flex items-center justify-center gap-1 py-2 px-2 rounded-lg border-2 transition ${
+                        platforms.includes(value) 
+                          ? 'border-purple-500 bg-purple-50 text-purple-700' 
+                          : 'border-gray-200 hover:border-gray-300'
+                      } ${editingPost ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Icon size={16} />
+                      <span className="text-xs font-medium">{label.split(' ')[0]}</span>
+                      {connected && (
+                        <CheckCircle size={12} className="absolute -top-1 -right-1 text-green-500 bg-white rounded-full" />
+                      )}
+                      {!connected && platforms.includes(value) && (
+                        <AlertCircle size={12} className="absolute -top-1 -right-1 text-orange-500 bg-white rounded-full" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {platforms.some(p => !isConnected(p)) && (
+                <div className="mt-2 text-xs text-orange-600 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  Selected platforms without connections will be scheduled but not auto-posted
+                </div>
+              )}
+            </div>
+
+            {!editingPost && platforms.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Schedule Time{platforms.length > 1 ? 's' : ''}
+                </label>
+                <div className="space-y-2">
+                  {platforms.map(platform => {
+                    const platformInfo = PLATFORMS.find(p => p.value === platform);
+                    const Icon = platformInfo?.icon || Cloud;
+                    const connected = isConnected(platform);
+                    
+                    return (
+                      <div key={platform} className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 w-32">
+                          <Icon size={16} className={platformInfo?.color} />
+                          <span className="text-sm font-medium capitalize">{platform}</span>
+                          {connected && <CheckCircle size={12} className="text-green-500" />}
+                        </div>
+                        <input
+                          type="time"
+                          value={platformTimes[platform] || '09:00'}
+                          onChange={(e) => updatePlatformTime(platform, e.target.value)}
+                          disabled={saving || uploading}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              disabled={saving || uploading}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              rows="6"
-              placeholder="What do you want to post?"
-            />
-            <div className="text-sm text-gray-500 mt-1">{content.length} characters</div>
-          </div>
+            {editingPost && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+                <input
+                  type="time"
+                  value={platformTimes[platforms[0]] || '09:00'}
+                  onChange={(e) => updatePlatformTime(platforms[0], e.target.value)}
+                  disabled={saving || uploading}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            )}
 
-          <div className="flex gap-3">
-            <button 
-              onClick={onCancel} 
-              disabled={saving || uploading}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={handleSubmit} 
-              disabled={saving || uploading || !content.trim() || platforms.length === 0}
-              className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-            >
-              {uploading ? 'Uploading...' : (saving ? 'Saving...' : (editingPost ? 'Update' : 'Schedule'))}
-            </button>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Image or Video <span className="text-gray-500">(optional)</span>
+              </label>
+              
+              {!mediaPreview ? (
+                <label className="block w-full border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-purple-400 transition">
+                  <Upload className="mx-auto mb-2 text-gray-400" size={32} />
+                  <p className="text-sm text-gray-600">Click to upload image or video</p>
+                  <p className="text-xs text-gray-500 mt-1">Max 50MB</p>
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    onChange={handleFileSelect}
+                    disabled={saving || uploading}
+                    className="hidden"
+                  />
+                </label>
+              ) : (
+                <div className="relative">
+                  {mediaType === 'video' ? (
+                    <video src={mediaPreview} controls className="w-full rounded-lg" />
+                  ) : (
+                    <img src={mediaPreview} alt="Preview" className="w-full rounded-lg" />
+                  )}
+                  <button
+                    onClick={removeMedia}
+                    disabled={saving || uploading}
+                    className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">Content</label>
+                <button
+                  onClick={() => setShowAI(true)}
+                  disabled={saving || uploading}
+                  className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition text-xs disabled:opacity-50"
+                >
+                  <Sparkles size={14} />
+                  AI Generate
+                </button>
+              </div>
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                disabled={saving || uploading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                rows="6"
+                placeholder="What do you want to post?"
+              />
+              <div className="text-sm text-gray-500 mt-1">{content.length} characters</div>
+            </div>
+
+            <div className="flex gap-3">
+              <button 
+                onClick={onCancel} 
+                disabled={saving || uploading}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSubmit} 
+                disabled={saving || uploading || !content.trim() || platforms.length === 0}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+              >
+                {uploading ? 'Uploading...' : (saving ? 'Saving...' : (editingPost ? 'Update' : `Schedule (${platforms.length})`))}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {showAI && (
+        <AICaptionGenerator
+          platform={platforms[0]}
+          onInsert={(caption) => setContent(caption)}
+          onClose={() => setShowAI(false)}
+        />
+      )}
+    </>
   );
 };
-
 const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [posts, setPosts] = useState([]);
   const [deletedPosts, setDeletedPosts] = useState([]);
+  const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [viewingDayPosts, setViewingDayPosts] = useState(null);
   const [editingPost, setEditingPost] = useState(null);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [showConnectedAccounts, setShowConnectedAccounts] = useState(false);
 
   useEffect(() => {
+    // Check for LinkedIn callback
+    if (window.location.pathname === '/auth/linkedin/callback') {
+      return; // LinkedInCallback component will handle this
+    }
+
     if (window.location.hash === '#reset-password') {
       setShowPasswordReset(true);
     }
@@ -767,23 +1173,107 @@ const App = () => {
     if (user) {
       loadPosts();
       loadDeletedPosts();
+      loadConnectedAccounts();
     }
   }, [user]);
 
-  const loadPosts = async () => {
-    setLoadingPosts(true);
+  const loadConnectedAccounts = async () => {
     const { data, error } = await supabase
-      .from('posts')
+      .from('connected_accounts')
       .select('*')
-      .eq('status', 'scheduled')
-      .order('date', { ascending: true });
+      .eq('user_id', user.id);
 
     if (error) {
-      console.error('Error loading posts:', error);
+      console.error('Error loading connected accounts:', error);
     } else {
-      setPosts(data || []);
+      setConnectedAccounts(data || []);
     }
-    setLoadingPosts(false);
+  };
+const publishPost = async (postId) => {
+  const post = posts.find(p => p.id === postId);
+  if (!post) return;
+
+  const account = connectedAccounts.find(acc => acc.platform === post.platform);
+  
+  if (!account) {
+    alert(`No ${post.platform} account connected. Please connect your account first.`);
+    return;
+  }
+
+  try {
+    // Update post status to publishing
+    await supabase
+      .from('posts')
+      .update({ status: 'publishing' })
+      .eq('id', postId);
+
+    // Call the Edge Function to publish
+    const { data, error } = await supabase.functions.invoke('publish-post', {
+      body: {
+        postId: postId,
+        platform: post.platform,
+        content: post.content,
+        mediaUrl: post.media_url,
+        accountId: account.id
+      }
+    });
+
+    if (error) throw error;
+
+    if (data.success) {
+      // Update post status to published
+      await supabase
+        .from('posts')
+        .update({ 
+          status: 'published',
+          published_at: new Date().toISOString()
+        })
+        .eq('id', postId);
+
+      alert('Post published successfully!');
+      loadPosts();
+    } else {
+      throw new Error(data.error || 'Failed to publish');
+    }
+  } catch (error) {
+    console.error('Publish error:', error);
+    
+    // Update post status back to scheduled
+    await supabase
+      .from('posts')
+      .update({ status: 'scheduled' })
+      .eq('id', postId);
+
+    alert(`Failed to publish: ${error.message}`);
+  }
+};
+  
+  const togglePlatform = (platform) => {
+    if (platforms.includes(platform)) {
+      if (platforms.length > 1) {
+        setPlatforms(platforms.filter(p => p !== platform));
+        const newTimes = { ...platformTimes };
+        delete newTimes[platform];
+        setPlatformTimes(newTimes);
+      }
+    } else {
+      setPlatforms([...platforms, platform]);
+      setPlatformTimes({
+        ...platformTimes,
+        [platform]: platformTimes[platforms[0]] || '09:00'
+      });
+    }
+  };
+
+  const updatePlatformTime = (platform, time) => {
+    setPlatformTimes({
+      ...platformTimes,
+      [platform]: time
+    });
+  };
+
+  const isConnected = (platform) => {
+    return connectedAccounts.some(acc => acc.platform === platform);
   };
 
   const loadDeletedPosts = async () => {
@@ -813,7 +1303,11 @@ const App = () => {
     }
   };
 
-  const handleSavePost = async (post) => {
+const handleSavePost = async (post) => {
+    console.log('User object:', user);
+    console.log('User ID:', user?.id);
+    console.log('Post data:', post);
+
     if (editingPost) {
       const { error } = await supabase
         .from('posts')
@@ -828,6 +1322,7 @@ const App = () => {
 
       if (error) {
         console.error('Error updating post:', error);
+        console.error('Full error details:', JSON.stringify(error, null, 2));
         alert('Failed to update post. Please try again.');
       } else {
         await loadPosts();
@@ -836,21 +1331,37 @@ const App = () => {
         setViewingDayPosts(null);
       }
     } else {
+      if (!user || !user.id) {
+        console.error('User is not logged in or user.id is missing');
+        alert('User session error. Please log out and log back in.');
+        return;
+      }
+
+      const postToInsert = { 
+        ...post, 
+        user_id: user.id 
+      };
+
+      console.log('Inserting post:', postToInsert);
+
       const { data, error } = await supabase
         .from('posts')
-        .insert([{ ...post, user_id: user.id }])
+        .insert([postToInsert])
         .select();
 
       if (error) {
         console.error('Error saving post:', error);
-        alert('Failed to save post. Please try again.');
+        console.error('Full error details:', JSON.stringify(error, null, 2));
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        alert(`Failed to save post: ${error.message}`);
       } else {
+        console.log('Post saved successfully:', data);
         setPosts([...posts, data[0]]);
         setSelectedDate(null);
       }
     }
   };
-
   const handleDeletePost = async (postId) => {
     if (!window.confirm('Move this post to trash?')) return;
 
@@ -914,12 +1425,199 @@ const App = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl text-gray-600">Loading...</div>
+   return (
+  <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50">
+    {loading ? (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
       </div>
-    );
-  }
+    ) : !user ? (
+      <AuthForm />
+    ) : (
+      <>
+        <Header 
+          user={user} 
+          onTrashClick={() => setShowTrash(true)}
+          onAccountsClick={() => setShowConnectedAccounts(true)}
+        />
+        <Calendar
+          posts={posts}
+          onDateClick={setSelectedDate}
+          onDayClick={setViewingDayPosts}
+          userId={user.id}
+        />
+
+        {selectedDate && (
+          <PostForm
+            selectedDate={selectedDate}
+            editingPost={editingPost}
+            onSave={savePost}
+            onCancel={() => {
+              setSelectedDate(null);
+              setEditingPost(null);
+            }}
+            userId={user.id}
+            connectedAccounts={connectedAccounts}
+          />
+        )}
+
+        {viewingDayPosts && (
+          <DayView
+            date={viewingDayPosts}
+            posts={posts.filter(p => p.date === viewingDayPosts)}
+            onClose={() => setViewingDayPosts(null)}
+            onEdit={(post) => {
+              setEditingPost(post);
+              setSelectedDate(post.date);
+              setViewingDayPosts(null);
+            }}
+            onDelete={deletePost}
+            onPublish={publishPost}
+            connectedAccounts={connectedAccounts}
+          />
+        )}
+        const DayView = ({ date, posts, onClose, onEdit, onDelete, onPublish, connectedAccounts }) => {
+  const sortedPosts = [...posts].sort((a, b) => a.time.localeCompare(b.time));
+
+  const isConnected = (platform) => {
+    return connectedAccounts.some(acc => acc.platform === platform);
+  };
+
+  const canPublish = (post) => {
+    return post.status === 'scheduled' && isConnected(post.platform);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-2xl font-bold text-gray-900">Posts for {date}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
+        </div>
+
+        {sortedPosts.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">No posts scheduled for this day</p>
+        ) : (
+          <div className="space-y-4">
+            {sortedPosts.map(post => {
+              const platformInfo = PLATFORMS.find(p => p.value === post.platform);
+              const Icon = platformInfo?.icon || Cloud;
+              const connected = isConnected(post.platform);
+
+              return (
+                <div key={post.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <Icon size={20} className={platformInfo?.color} />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900 capitalize">{post.platform}</span>
+                          {connected ? (
+                            <CheckCircle size={14} className="text-green-500" />
+                          ) : (
+                            <AlertCircle size={14} className="text-orange-500" />
+                          )}
+                        </div>
+                        <span className="text-sm text-gray-600">{post.time}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        post.status === 'published' 
+                          ? 'bg-green-100 text-green-700' 
+                          : post.status === 'publishing'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {post.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {post.media_url && (
+                    <div className="mb-3">
+                      {post.media_type === 'video' ? (
+                        <video src={post.media_url} controls className="w-full rounded-lg max-h-48 object-cover" />
+                      ) : (
+                        <img src={post.media_url} alt="Post media" className="w-full rounded-lg max-h-48 object-cover" />
+                      )}
+                    </div>
+                  )}
+
+                  <p className="text-gray-700 mb-3 whitespace-pre-wrap">{post.content}</p>
+
+                  {!connected && (
+                    <div className="mb-3 text-xs text-orange-600 flex items-center gap-1 bg-orange-50 p-2 rounded">
+                      <AlertCircle size={14} />
+                      Account not connected - cannot auto-publish
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    {post.status === 'scheduled' && (
+                      <>
+                        <button
+                          onClick={() => onEdit(post)}
+                          className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition"
+                        >
+                          <Edit2 size={14} />
+                          Edit
+                        </button>
+                        {canPublish(post) && (
+                          <button
+                            onClick={() => onPublish(post.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition"
+                          >
+                            <Send size={14} />
+                            Publish Now
+                          </button>
+                        )}
+                      </>
+                    )}
+                    <button
+                      onClick={() => onDelete(post.id)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition ml-auto"
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+        {showTrash && (
+          <TrashBin
+            deletedPosts={deletedPosts}
+            onClose={() => setShowTrash(false)}
+            onRestore={restorePost}
+            onPermanentDelete={permanentlyDeletePost}
+          />
+        )}
+
+        {showConnectedAccounts && (
+          <ConnectedAccountsModal
+            userId={user.id}
+            onClose={() => setShowConnectedAccounts(false)}
+            onAccountsUpdated={loadConnectedAccounts}
+          />
+        )}
+
+        {showPasswordReset && (
+          <PasswordResetModal onClose={() => setShowPasswordReset(false)} />
+        )}
+      </>
+    )}
+  </div>
+);
 
   if (showPasswordReset && !user) {
     return <PasswordResetPage onBack={() => {
@@ -1062,6 +1760,150 @@ const App = () => {
             onPermanentDelete={handlePermanentDelete}
             onClose={() => setShowTrash(false)}
           />
+        )}
+      </div>
+    </div>
+  );
+};
+const ConnectedAccountsModal = ({ user, onClose }) => {
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadAccounts();
+  }, []);
+
+  const loadAccounts = async () => {
+    const { data, error } = await supabase
+      .from('connected_accounts')
+      .select('*')
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('Error loading accounts:', error);
+    } else {
+      setAccounts(data || []);
+    }
+    setLoading(false);
+  };
+
+  const connectLinkedIn = () => {
+    const scope = 'openid profile email w_member_social';
+    const state = Math.random().toString(36).substring(7);
+    
+    const authUrl = `https://www.linkedin.com/oauth/v2/authorization?` +
+      `response_type=code&` +
+      `client_id=${linkedinClientId}&` +
+      `redirect_uri=${encodeURIComponent(linkedinRedirectUri)}&` +
+      `state=${state}&` +
+      `scope=${encodeURIComponent(scope)}`;
+
+    window.location.href = authUrl;
+  };
+
+  const disconnectAccount = async (accountId) => {
+    if (!window.confirm('Disconnect this account?')) return;
+
+    const { error } = await supabase
+      .from('connected_accounts')
+      .delete()
+      .eq('id', accountId);
+
+    if (error) {
+      alert('Failed to disconnect account');
+    } else {
+      loadAccounts();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-bold text-gray-900">Connected Accounts</h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+            <X size={20} />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8">
+            <div className="text-gray-600">Loading...</div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* LinkedIn */}
+            <div className="border rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Linkedin size={24} className="text-blue-700" />
+                  <div>
+                    <div className="font-medium">LinkedIn</div>
+                    {accounts.find(a => a.platform === 'linkedin') ? (
+                      <div className="text-sm text-green-600 flex items-center gap-1">
+                        <CheckCircle size={14} />
+                        Connected as {accounts.find(a => a.platform === 'linkedin').platform_username}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500">Not connected</div>
+                    )}
+                  </div>
+                </div>
+                {accounts.find(a => a.platform === 'linkedin') ? (
+                  <button
+                    onClick={() => disconnectAccount(accounts.find(a => a.platform === 'linkedin').id)}
+                    className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 text-sm"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    onClick={connectLinkedIn}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                  >
+                    Connect
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Other platforms - Coming soon */}
+            <div className="border rounded-lg p-4 opacity-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Facebook size={24} className="text-blue-500" />
+                  <div>
+                    <div className="font-medium">Facebook</div>
+                    <div className="text-sm text-gray-500">Coming soon</div>
+                  </div>
+                </div>
+                <button
+                  disabled
+                  className="px-4 py-2 bg-gray-200 text-gray-500 rounded-lg text-sm cursor-not-allowed"
+                >
+                  Coming Soon
+                </button>
+              </div>
+            </div>
+
+            <div className="border rounded-lg p-4 opacity-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Instagram size={24} className="text-pink-500" />
+                  <div>
+                    <div className="font-medium">Instagram</div>
+                    <div className="text-sm text-gray-500">Coming soon</div>
+                  </div>
+                </div>
+                <button
+                  disabled
+                  className="px-4 py-2 bg-gray-200 text-gray-500 rounded-lg text-sm cursor-not-allowed"
+                >
+                  Coming Soon
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
